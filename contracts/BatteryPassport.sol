@@ -1,38 +1,57 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+contract BatteryPassport {
+    // Role-Based Security
+    address public admin;
 
-contract BatteryPassport is ERC721URIStorage, Ownable {
-    uint256 private _nextTokenId;
+    // Lifecycle Status Engine
+    enum LifecycleStatus { Manufactured, Installed, EndOfLife, Recycled }
 
-    // This defines what data a Passport holds
+    // Advanced State of Health (SoH) Metrics
     struct Battery {
+        uint256 id;
         string manufacturer;
         string model;
-        string productionDate;
+        string manufactureDate;
+        uint256 capacityKWh;
+        uint256 chargeCycles;
+        uint256 healthPercentage;
+        LifecycleStatus status;
     }
 
-    // A list that links every Passport ID to its Battery Data
     mapping(uint256 => Battery) public batteries;
+    uint256 public nextBatteryId;
 
-    constructor() ERC721("EV Battery Passport", "EVB") Ownable(msg.sender) {}
+    event PassportMinted(uint256 indexed id, string manufacturer, string model);
+    
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "SECURITY ALERT: Only the Admin can perform this action");
+        _;
+    }
+
+    constructor() {
+        admin = msg.sender; 
+    }
 
     function createPassport(
-        string memory tokenURI, 
-        string memory manufacturer, 
-        string memory model, 
-        string memory productionDate
-    ) public onlyOwner returns (uint256) {
-        uint256 tokenId = _nextTokenId++;
-        
-        _mint(msg.sender, tokenId);
-        _setTokenURI(tokenId, tokenURI);
+        string memory _manufacturer,
+        string memory _model,
+        string memory _date,
+        uint256 _capacityKWh
+    ) public onlyAdmin {
+        batteries[nextBatteryId] = Battery({
+            id: nextBatteryId,
+            manufacturer: _manufacturer,
+            model: _model,
+            manufactureDate: _date,
+            capacityKWh: _capacityKWh,
+            chargeCycles: 0,
+            healthPercentage: 100,
+            status: LifecycleStatus.Manufactured
+        });
 
-        // Save the battery details to the blockchain
-        batteries[tokenId] = Battery(manufacturer, model, productionDate);
-
-        return tokenId;
+        emit PassportMinted(nextBatteryId, _manufacturer, _model);
+        nextBatteryId++;
     }
 }
