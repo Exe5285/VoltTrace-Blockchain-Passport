@@ -1,34 +1,56 @@
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import BatteryPassport from './V3_ABI.json';
+import BatteryPassport from './V4_ABI.json';
 
-// Your new V2 Enterprise Contract Address
-const contractAddress = "0x248Aa077028c58fF7e21569afa1740BF792f4a18"; 
+// Your Brand New V3 Contract
+const contractAddress = "0xbEbEBdbf0aEd00b918692A59A4B7337C0382E59D"; 
+// Change this to your Vercel link later!
+const websiteURL = "https://volt-trace-blockchain-passport.vercel.app"; 
 
 function App() {
+  const [walletAddress, setWalletAddress] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [activeTab, setActiveTab] = useState('app');
+  const [statusMsg, setStatusMsg] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Minting State
   const [manufacturer, setManufacturer] = useState('');
   const [model, setModel] = useState('');
+  const [ownerName, setOwnerName] = useState('');
   const [capacity, setCapacity] = useState('');
-  
-  const [statusMsg, setStatusMsg] = useState('');
-  const [allPassports, setAllPassports] = useState([]);
-  const [isMinting, setIsMinting] = useState(false);
-  const [isFetching, setIsFetching] = useState(false);
-  const [walletAddress, setWalletAddress] = useState('');
-  const [activeTab, setActiveTab] = useState('app');
+
+  // Update State
+  const [updateId, setUpdateId] = useState('');
+  const [updateHealth, setUpdateHealth] = useState('');
+  const [updateCycles, setUpdateCycles] = useState('');
+  const [updateStatus, setUpdateStatus] = useState('1'); // Default to Installed
+
+  // Verify State
+  const [verifyData, setVerifyData] = useState(null);
+  const [isVerifyMode, setIsVerifyMode] = useState(false);
+  // Ledger State
+  const [passports, setPassports] = useState([]);
 
   useEffect(() => {
-    checkWallet();
-    if (activeTab === 'app') {
-      fetchAllPassports();
+    // Check if URL has ?verify=ID
+    const urlParams = new URLSearchParams(window.location.search);
+    const verifyId = urlParams.get('verify');
+    
+    if (verifyId !== null) {
+      setIsVerifyMode(true);
+      fetchSinglePassport(verifyId);
+    } else {
+      checkWallet();
     }
-  }, [activeTab]);
+  }, []);
 
   async function checkWallet() {
     if (window.ethereum) {
       const accounts = await window.ethereum.request({ method: 'eth_accounts' });
       if (accounts.length > 0) {
         setWalletAddress(accounts[0]);
+        checkIfAdmin(accounts[0]);
       }
     }
   }
@@ -37,246 +59,263 @@ function App() {
     if (!window.ethereum) return alert("Please install MetaMask!");
     const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
     setWalletAddress(accounts[0]);
+    checkIfAdmin(accounts[0]);
+  }
+
+  async function checkIfAdmin(address) {
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const contract = new ethers.Contract(contractAddress, BatteryPassport.abi, provider);
+    try {
+      const adminStatus = await contract.admins(address);
+      setIsAdmin(adminStatus);
+    } catch (error) {
+      console.error("Admin check failed", error);
+    }
   }
 
   async function createPassport() {
-    if (!manufacturer || !model || !capacity) {
-      setStatusMsg("⚠️ Please enter Make, Model, and Capacity.");
-      return;
-    }
-    
+    if (!manufacturer || !model || !ownerName || !capacity) return setStatusMsg("⚠️ Fill all fields.");
     try {
-      if (!window.ethereum) return alert("Please install MetaMask!");
-      setIsMinting(true);
-      setStatusMsg("⏳ Signing Transaction...");
-      
+      setIsLoading(true);
+      setStatusMsg("⏳ Minting Passport...");
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(contractAddress, BatteryPassport.abi, signer);
 
       const today = new Date().toISOString().split('T')[0];
-      // Calling the updated V2 function
-      const tx = await contract.createPassport(manufacturer, model, today, capacity);
-      
-      setStatusMsg("⚡ Deploying to Blockchain Ledger...");
+      const tx = await contract.createPassport(manufacturer, model, ownerName, today, capacity);
       await tx.wait();
       
       setStatusMsg("✅ Passport Minted Successfully!");
-      setManufacturer(''); 
-      setModel('');
-      setCapacity('');
-      
-      fetchAllPassports(); 
+      setManufacturer(''); setModel(''); setOwnerName(''); setCapacity('');
     } catch (error) {
-      console.error(error);
-      setStatusMsg("❌ Transaction failed. Are you the Admin?");
+      setStatusMsg("❌ Transaction failed.");
     } finally {
-      setIsMinting(false);
+      setIsLoading(false);
       setTimeout(() => setStatusMsg(''), 5000);
     }
   }
 
-  async function fetchAllPassports() {
-    if (!window.ethereum) return;
-    setIsFetching(true);
-    
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const contract = new ethers.Contract(contractAddress, BatteryPassport.abi, provider);
-
-    const statusMap = ["Manufactured", "Installed in EV", "End of Life", "Recycled"];
-
+  async function updatePassport() {
+    if (!updateId || !updateHealth || !updateCycles) return setStatusMsg("⚠️ Fill all update fields.");
     try {
-      let tempList = [];
-      let id = 0;
+      setIsLoading(true);
+      setStatusMsg("⏳ Updating Ledger...");
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(contractAddress, BatteryPassport.abi, signer);
 
-      while (true) {
-        try {
-          const data = await contract.batteries(id);
-          if (data[1] === "") break; // If manufacturer string is empty, we reached the end
-
-          tempList.push({
-            id: Number(data[0]),
-            manufacturer: data[1],
-            model: data[2],
-            date: data[3],
-            capacity: Number(data[4]),
-            chargeCycles: Number(data[5]),
-            healthPercentage: Number(data[6]),
-            status: statusMap[Number(data[7])]
-          });
-          id++; 
-        } catch (error) {
-          console.error("Fetch loop failed at ID:", id, error);
-          break;
-        }
-      }
-      setAllPassports(tempList.reverse());
+      const tx = await contract.updateHealthAndStatus(updateId, updateHealth, updateCycles, updateStatus);
+      await tx.wait();
+      
+      setStatusMsg(`✅ Token #${updateId} Updated Successfully!`);
+      setUpdateId(''); setUpdateHealth(''); setUpdateCycles('');
     } catch (error) {
-      console.error("Error fetching", error);
+      setStatusMsg("❌ Update failed. Check ID.");
     } finally {
-      setIsFetching(false);
+      setIsLoading(false);
+      setTimeout(() => setStatusMsg(''), 5000);
+    }
+  }
+  async function fetchAllPassports() {
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const contract = new ethers.Contract(contractAddress, BatteryPassport.abi, provider);
+      const totalPassports = await contract.nextBatteryId();
+      const statusMap = ["Manufactured", "Installed in EV", "End of Life", "Recycled"];
+      
+      let tempLedger = [];
+      for (let i = 0; i < Number(totalPassports); i++) {
+        const data = await contract.batteries(i);
+        tempLedger.push({
+          id: Number(data[0]),
+          manufacturer: data[1],
+          model: data[2],
+          ownerName: data[3],
+          healthPercentage: Number(data[7]),
+          status: statusMap[Number(data[8])]
+        });
+      }
+      setPassports(tempLedger.reverse()); // Show newest first
+    } catch (error) {
+      console.error("Failed to fetch ledger", error);
     }
   }
 
-  return (
-    <div style={{ position: "absolute", top: 0, left: 0, width: "100vw", minHeight: "100vh", fontFamily: "'Poppins', sans-serif", background: "linear-gradient(135deg, #1a0b3e 0%, #0d041a 100%)", color: "white", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
+  // Auto-fetch the ledger when the admin connects
+  useEffect(() => {
+    if (isAdmin) fetchAllPassports();
+  }, [isAdmin]);
+
+  // Public Verifier Function (No MetaMask needed!)
+ // Public Verifier Function (Smart Connection)
+  async function fetchSinglePassport(id) {
+    try {
+      // 1. Choose the best connection available
+      let provider;
+      if (window.ethereum) {
+        provider = new ethers.BrowserProvider(window.ethereum); // Ultra-fast (for you)
+      } else {
+        provider = new ethers.JsonRpcProvider("https://rpc.sepolia.org"); // Fallback (for mobile phones)
+      }
       
-      <style>{`
-        body { margin: 0 !important; padding: 0 !important; overflow-x: hidden; }
-        .header { background: rgba(26, 11, 62, 0.6); padding: 15px 50px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid rgba(255,255,255,0.05); backdrop-filter: blur(20px); position: sticky; top: 0; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .logo { font-size: 26px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; background: linear-gradient(to right, #00f2fe, #ff00de); -webkit-background-clip: text; color: transparent; cursor: pointer; }
-        .nav-links { display: flex; gap: 30px; }
-        .nav-item { cursor: pointer; font-weight: 700; color: #a1a1aa; transition: all 0.2s; text-transform: uppercase; font-size: 14px; letter-spacing: 1px; }
-        .nav-item:hover, .nav-item.active { color: white; text-shadow: 0 0 10px white; }
-        .connect-btn { background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%); color: #0d041a; border: none; padding: 10px 25px; border-radius: 30px; font-weight: 800; cursor: pointer; text-transform: uppercase; font-size: 13px; box-shadow: 0 5px 15px rgba(0, 242, 254, 0.4); transition: transform 0.2s; }
-        .connect-btn:hover { transform: scale(1.05); }
+      const contract = new ethers.Contract(contractAddress, BatteryPassport.abi, provider);
+      const statusMap = ["Manufactured", "Installed in EV", "End of Life", "Recycled"];
 
-        .app-container { max-width: 1400px; margin: 50px auto; padding: 0 20px 80px; display: grid; grid-template-columns: 1fr 2.5fr; gap: 40px; flex-grow: 1; perspective: 1500px; }
-        .app-panel { background: rgba(255, 255, 255, 0.02); padding: 40px; border-radius: 30px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border: 2px solid rgba(255,255,255,0.05); backdrop-filter: blur(10px); }
-        .app-title { font-size: 1.6rem; font-weight: 900; margin-bottom: 30px; text-transform: uppercase; letter-spacing: -1px; color: white; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 15px; }
-        
-        .input-block { margin-bottom: 20px; }
-        .input-block label { display: block; font-weight: 700; margin-bottom: 8px; color: #a1a1aa; text-transform: uppercase; font-size: 12px; letter-spacing: 1px; }
-        .input-block input { width: 100%; padding: 15px; background: rgba(0,0,0,0.2); border: 2px solid rgba(255,255,255,0.05); border-radius: 12px; box-sizing: border-box; font-size: 1rem; color: white; transition: all 0.3s; }
-        .input-block input:focus { outline: none; border-color: #ff00de; box-shadow: 0 0 15px rgba(255, 0, 222, 0.3); }
-        
-        .mint-btn { width: 100%; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 18px; border-radius: 15px; font-size: 1.1rem; font-weight: 900; cursor: pointer; transition: all 0.3s; text-transform: uppercase; box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4); margin-top: 10px; }
-        .mint-btn:hover:not(:disabled) { transform: translateY(-3px); box-shadow: 0 12px 30px rgba(16, 185, 129, 0.6); }
-        .mint-btn:disabled { background: #475569; cursor: not-allowed; opacity: 0.5; }
+      // 2. Fetch the data
+      const data = await contract.batteries(id);
+      
+      if (data[1] === "") {
+         setVerifyData("NOT_FOUND");
+         return;
+      }
+      
+      // 3. Set the UI
+      setVerifyData({
+        id: Number(data[0]),
+        manufacturer: data[1],
+        model: data[2],
+        ownerName: data[3],
+        date: data[4],
+        capacity: Number(data[5]),
+        chargeCycles: Number(data[6]),
+        healthPercentage: Number(data[7]),
+        status: statusMap[Number(data[8])]
+      });
+    } catch (error) {
+      console.error("Verification Error:", error);
+      setVerifyData("NOT_FOUND");
+    }
+  }
 
-        .passport-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 25px; }
-        .passport-item { background: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%); border: 2px solid rgba(255,255,255,0.05); border-radius: 20px; box-shadow: 0 10px 20px rgba(0,0,0,0.3); overflow: hidden; display: flex; flex-direction: column;}
-        
-        .card-header { padding: 20px 25px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); }
-        .card-body { padding: 25px; display: flex; gap: 20px; }
-        
-        .qr-box { width: 90px; height: 90px; background: white; padding: 5px; border-radius: 10px; flex-shrink: 0; }
-        .qr-box img { width: 100%; height: 100%; object-fit: cover; }
-        
-        .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 100%; }
-        .data-item { display: flex; flex-direction: column; }
-        .data-label { font-size: 10px; color: #a1a1aa; text-transform: uppercase; font-weight: 800; letter-spacing: 1px; }
-        .data-value { font-size: 14px; font-weight: 700; color: white; }
-        .health-bar { width: 100%; height: 6px; background: #3f3f46; border-radius: 3px; margin-top: 5px; overflow: hidden; }
-        .health-fill { height: 100%; background: #10b981; border-radius: 3px; }
-      `}</style>
-
-      {/* NAV */}
-      <header className="header">
-        <div className="logo" onClick={() => setActiveTab('home')}>VoltTrace V2</div>
-        <div className="nav-links">
-          <div className={`nav-item ${activeTab === 'app' ? 'active' : ''}`} onClick={() => setActiveTab('app')}>Enterprise Dashboard</div>
-        </div>
-        <div>
-          {walletAddress ? (
-            <div style={{ background: "rgba(0, 242, 254, 0.1)", border: "1px solid rgba(0, 242, 254, 0.3)", padding: "8px 18px", borderRadius: "30px", fontWeight: "700", color: "#00f2fe", fontSize: "14px" }}>
-              {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+  // === RENDER PUBLIC VERIFIER ===
+  if (isVerifyMode) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0d041a", color: "white", fontFamily: "sans-serif", display: "flex", justifyContent: "center", alignItems: "center", padding: "20px" }}>
+        <div style={{ background: "rgba(255,255,255,0.05)", padding: "40px", borderRadius: "20px", border: "1px solid rgba(0,242,254,0.3)", maxWidth: "500px", width: "100%", boxShadow: "0 20px 50px rgba(0,242,254,0.1)" }}>
+          <h2 style={{ textAlign: "center", color: "#00f2fe", marginTop: 0 }}>VERIFIED DIGITAL PASSPORT</h2>
+          {verifyData === null ? <p style={{textAlign:"center"}}>Scanning Blockchain...</p> : 
+           verifyData === "NOT_FOUND" ? <p style={{textAlign:"center", color:"#ff6161"}}>Passport Not Found.</p> : (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #333", paddingBottom: "10px", marginBottom: "20px" }}>
+                <span style={{color: "#a1a1aa"}}>TOKEN ID</span>
+                <span style={{fontWeight: "bold"}}>#{verifyData.id}</span>
+              </div>
+              <p><strong>Owner:</strong> {verifyData.ownerName}</p>
+              <p><strong>Make & Model:</strong> {verifyData.manufacturer} {verifyData.model}</p>
+              <p><strong>Capacity:</strong> {verifyData.capacity} kWh</p>
+              <p><strong>Production Date:</strong> {verifyData.date}</p>
+              <p><strong>Status:</strong> <span style={{color: "#00f2fe"}}>{verifyData.status}</span></p>
+              
+              <div style={{ marginTop: "20px", background: "#000", padding: "15px", borderRadius: "10px" }}>
+                <div style={{display: "flex", justifyContent: "space-between"}}>
+                  <span>State of Health (SoH)</span>
+                  <span style={{color: verifyData.healthPercentage > 80 ? "#10b981" : "#f59e0b", fontWeight: "bold"}}>{verifyData.healthPercentage}%</span>
+                </div>
+                <div style={{ width: "100%", height: "8px", background: "#333", borderRadius: "4px", marginTop: "10px" }}>
+                  <div style={{ width: `${verifyData.healthPercentage}%`, height: "100%", background: verifyData.healthPercentage > 80 ? "#10b981" : "#f59e0b", borderRadius: "4px" }}></div>
+                </div>
+                <p style={{fontSize: "12px", color: "#a1a1aa", textAlign: "right", marginTop: "5px"}}>{verifyData.chargeCycles} Charge Cycles</p>
+              </div>
             </div>
-          ) : (
-            <button className="connect-btn" onClick={connectWallet}>Authorize Wallet</button>
           )}
         </div>
+      </div>
+    );
+  }
+
+  // === RENDER SECURE ADMIN DASHBOARD ===
+  return (
+    <div style={{ position: "absolute", top: 0, left: 0, width: "100vw", minHeight: "100vh", fontFamily: "'Poppins', sans-serif", background: "linear-gradient(135deg, #1a0b3e 0%, #0d041a 100%)", color: "white" }}>
+      <header style={{ padding: "20px 50px", display: "flex", justifyContent: "space-between", background: "rgba(0,0,0,0.5)", borderBottom: "1px solid #333" }}>
+        <div style={{ fontSize: "24px", fontWeight: "bold", color: "#00f2fe" }}>VoltTrace SECURE</div>
+        {walletAddress ? (
+          <div style={{ color: isAdmin ? "#10b981" : "#ff6161", fontWeight: "bold" }}>
+            {isAdmin ? "🛡️ Admin Verified" : "❌ Unauthorized"} | {walletAddress.slice(0, 6)}...
+          </div>
+        ) : (
+          <button onClick={connectWallet} style={{ background: "#00f2fe", border: "none", padding: "10px 20px", borderRadius: "20px", fontWeight: "bold", cursor: "pointer" }}>Connect Wallet</button>
+        )}
       </header>
 
-      {/* APP */}
-      {activeTab === 'app' && (
-        <div className="app-container">
-          
-          {/* Admin Minting Panel */}
-          <div className="app-panel">
-            <div className="app-title">Admin Registry panel</div>
-            <div style={{fontSize: "12px", color: "#a1a1aa", marginBottom: "20px"}}>Only the contract owner can mint new passports.</div>
-            
-            <div className="input-block">
-              <label>Manufacturer</label>
-              <input placeholder="e.g., TATA" value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} disabled={isMinting} />
-            </div>
-            <div className="input-block">
-              <label>Battery Model</label>
-              <input placeholder="e.g., Nexon EV 30.2kWh" value={model} onChange={(e) => setModel(e.target.value)} disabled={isMinting} />
-            </div>
-            <div className="input-block">
-              <label>Capacity (kWh)</label>
-              <input type="number" placeholder="e.g., 30" value={capacity} onChange={(e) => setCapacity(e.target.value)} disabled={isMinting} />
-            </div>
+      <div style={{ maxWidth: "1200px", margin: "50px auto", padding: "20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "40px" }}>
+        
+        {/* PANEL 1: MINTING */}
+        <div style={{ background: "rgba(255,255,255,0.05)", padding: "30px", borderRadius: "20px" }}>
+          <h2 style={{borderBottom: "1px solid #333", paddingBottom: "10px"}}>1. Mint New EV Passport</h2>
+          <input style={inputStyle} placeholder="Manufacturer (e.g. TATA)" value={manufacturer} onChange={e => setManufacturer(e.target.value)} disabled={!isAdmin || isLoading} />
+          <input style={inputStyle} placeholder="Model (e.g. Nexon EV)" value={model} onChange={e => setModel(e.target.value)} disabled={!isAdmin || isLoading} />
+          <input style={inputStyle} placeholder="Owner Name (e.g. John Doe)" value={ownerName} onChange={e => setOwnerName(e.target.value)} disabled={!isAdmin || isLoading} />
+          <input style={inputStyle} type="number" placeholder="Capacity kWh (e.g. 30)" value={capacity} onChange={e => setCapacity(e.target.value)} disabled={!isAdmin || isLoading} />
+          <button style={btnStyle} onClick={createPassport} disabled={!isAdmin || isLoading}>Mint Passport</button>
+        </div>
 
-            <button className="mint-btn" onClick={createPassport} disabled={isMinting}>
-              {isMinting ? "⚙️ Writing to Ledger..." : "Mint V2 Passport"}
-            </button>
-
-            {statusMsg && (
-              <div style={{ marginTop: "15px", padding: "12px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px", textAlign: "center", fontWeight: "700", fontSize: "13px", color: statusMsg.includes("❌") ? "#ff6161" : "#00f2fe" }}>
-                {statusMsg}
-              </div>
-            )}
+        {/* PANEL 2: UPDATING & SERVICE */}
+        <div style={{ background: "rgba(255,255,255,0.05)", padding: "30px", borderRadius: "20px" }}>
+          <h2 style={{borderBottom: "1px solid #333", paddingBottom: "10px"}}>2. Service & Update Battery</h2>
+          <div style={{display: "flex", gap: "10px"}}>
+             <input style={{...inputStyle, flex: 1}} type="number" placeholder="Token ID (e.g. 0)" value={updateId} onChange={e => setUpdateId(e.target.value)} disabled={!isAdmin || isLoading} />
+             <select style={{...inputStyle, flex: 2}} value={updateStatus} onChange={e => setUpdateStatus(e.target.value)} disabled={!isAdmin || isLoading}>
+                <option value="0">Manufactured</option>
+                <option value="1">Installed in EV</option>
+                <option value="2">End of Life</option>
+                <option value="3">Recycled</option>
+             </select>
           </div>
+          <div style={{display: "flex", gap: "10px"}}>
+             <input style={{...inputStyle, flex: 1}} type="number" placeholder="New Health %" value={updateHealth} onChange={e => setUpdateHealth(e.target.value)} disabled={!isAdmin || isLoading} />
+             <input style={{...inputStyle, flex: 1}} type="number" placeholder="Total Cycles" value={updateCycles} onChange={e => setUpdateCycles(e.target.value)} disabled={!isAdmin || isLoading} />
+          </div>
+          <button style={{...btnStyle, background: "#f59e0b"}} onClick={updatePassport} disabled={!isAdmin || isLoading}>Log Service Update</button>
+          
+          <div style={{marginTop: "30px", padding: "15px", background: "rgba(0,0,0,0.3)", borderRadius: "10px"}}>
+            <p style={{fontSize: "14px", color: "#a1a1aa", margin: 0}}>Public Verification QR Tool:</p>
+            <p style={{fontSize: "12px", color: "white"}}>Test QR URL: <code>{websiteURL}/?verify={updateId || "0"}</code></p>
+          </div>
+        </div>
 
-          {/* Registry & Search Engine */}
-          <div className="app-panel">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px", borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: "15px" }}>
-              <div className="app-title" style={{ border: "none", margin: 0, padding: 0 }}>Global Passport Ledger</div>
-              <button onClick={fetchAllPassports} disabled={isFetching} style={{ background: "transparent", border: "2px solid rgba(255,255,255,0.05)", color: "white", padding: "10px 20px", borderRadius: "10px", cursor: "pointer", fontWeight: "700", fontSize: "12px", textTransform: "uppercase" }}>
-                {isFetching ? "Syncing..." : "↻ Refresh Network"}
-              </button>
+        {statusMsg && <div style={{ gridColumn: "1 / -1", textAlign: "center", color: "#00f2fe", fontWeight: "bold", padding: "15px", background: "rgba(0,0,0,0.5)", borderRadius: "10px" }}>{statusMsg}</div>}
+        {/* PANEL 3: GLOBAL ADMIN LEDGER */}
+        {isAdmin && (
+          <div style={{ gridColumn: "1 / -1", background: "rgba(255,255,255,0.05)", padding: "30px", borderRadius: "20px", marginTop: "20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #333", paddingBottom: "10px", marginBottom: "20px" }}>
+              <h2 style={{ margin: 0 }}>3. Global Admin Ledger</h2>
+              <button onClick={fetchAllPassports} style={{ background: "transparent", border: "1px solid #00f2fe", color: "#00f2fe", padding: "8px 15px", borderRadius: "8px", cursor: "pointer" }}>↻ Refresh Ledger</button>
             </div>
-
-            <div className="passport-list">
-              {allPassports.length === 0 && !isFetching && (
-                <div style={{ color: "#71717a", textAlign: "center", gridColumn: "1 / -1" }}>No V2 passports minted yet.</div>
-              )}
-              
-              {allPassports.map((p) => (
-                <div key={p.id} className="passport-item">
-                  <div className="card-header">
-                    <span style={{ fontSize: "12px", color: "#00f2fe", fontWeight: "800", letterSpacing: "1px" }}>TOKEN #{p.id}</span>
-                    <span style={{ fontSize: "11px", background: "rgba(255,255,255,0.1)", padding: "4px 10px", borderRadius: "20px", fontWeight: "700", textTransform: "uppercase" }}>{p.status}</span>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "20px" }}>
+              {passports.length === 0 ? <p>No passports minted yet.</p> : passports.map(p => (
+                <div key={p.id} style={{ background: "rgba(0,0,0,0.5)", padding: "20px", borderRadius: "10px", border: "1px solid #333" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
+                    <span style={{ color: "#00f2fe", fontWeight: "bold" }}>Token #{p.id}</span>
+                    <span style={{ fontSize: "12px", background: "#333", padding: "3px 8px", borderRadius: "10px" }}>{p.status}</span>
                   </div>
+                  <p style={{ margin: "5px 0", fontSize: "14px", color: "white" }}><strong>Owner:</strong> {p.ownerName}</p>
+                  <p style={{ margin: "5px 0", fontSize: "14px", color: "white" }}><strong>Model:</strong> {p.manufacturer} {p.model}</p>
+                  <p style={{ margin: "5px 0", fontSize: "14px", color: "white" }}><strong>Health:</strong> <span style={{color: p.healthPercentage > 80 ? "#10b981" : "#f59e0b"}}>{p.healthPercentage}%</span></p>
                   
-                  <div className="card-body">
-                    {/* Auto-Generating QR Code API */}
-                    <div className="qr-box">
-                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://sepolia.etherscan.io/address/${contractAddress}`} alt="QR Code" />
-                    </div>
-                    
-                    <div className="data-grid">
-                      <div className="data-item">
-                        <span className="data-label">Make</span>
-                        <span className="data-value">{p.manufacturer}</span>
-                      </div>
-                      <div className="data-item">
-                        <span className="data-label">Model</span>
-                        <span className="data-value" style={{fontSize:"12px"}}>{p.model}</span>
-                      </div>
-                      <div className="data-item">
-                        <span className="data-label">Capacity</span>
-                        <span className="data-value">{p.capacity} kWh</span>
-                      </div>
-                      <div className="data-item">
-                        <span className="data-label">Production</span>
-                        <span className="data-value">{p.date}</span>
-                      </div>
-                      
-                      {/* Health Bar UI */}
-                      <div className="data-item" style={{ gridColumn: "1 / -1", marginTop: "10px" }}>
-                        <div style={{display: "flex", justifyContent: "space-between"}}>
-                          <span className="data-label">State of Health (SoH)</span>
-                          <span className="data-value" style={{color: p.healthPercentage > 80 ? "#10b981" : "#f59e0b"}}>{p.healthPercentage}%</span>
-                        </div>
-                        <div className="health-bar">
-                          <div className="health-fill" style={{ width: `${p.healthPercentage}%`, background: p.healthPercentage > 80 ? "#10b981" : "#f59e0b" }}></div>
-                        </div>
-                        <span style={{fontSize: "10px", color: "#a1a1aa", marginTop: "4px"}}>{p.chargeCycles} Lifetime Charge Cycles</span>
-                      </div>
-                    </div>
+                  {/* QR Code and Magic Link */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "15px", marginTop: "15px" }}>
+                    <img 
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${websiteURL}/?verify=${p.id}`} 
+                      alt={`QR for Token ${p.id}`} 
+                      style={{ width: "60px", height: "60px", borderRadius: "5px", background: "white", padding: "2px" }} 
+                    />
+                    <a href={`/?verify=${p.id}`} target="_blank" rel="noreferrer" style={{ flex: 1, textAlign: "center", color: "white", textDecoration: "none", background: "#3b82f6", padding: "10px", borderRadius: "5px", fontSize: "14px", fontWeight: "bold" }}>
+                      View Certificate ↗
+                    </a>
                   </div>
                 </div>
               ))}
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
+
+const inputStyle = { width: "100%", padding: "12px", marginBottom: "15px", background: "rgba(0,0,0,0.3)", border: "1px solid #333", color: "white", borderRadius: "8px", boxSizing: "border-box" };
+const btnStyle = { width: "100%", padding: "15px", background: "#10b981", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "16px" };
 
 export default App;
