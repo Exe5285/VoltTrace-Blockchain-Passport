@@ -146,18 +146,12 @@ function App() {
   useEffect(() => {
     if (isAdmin) fetchAllPassports();
   }, [isAdmin]);
-
-  // Public Verifier Function (No MetaMask needed!)
- // Public Verifier Function (Smart Connection)
+// Public Verifier Function (Forced Alchemy Node)
   async function fetchSinglePassport(id) {
     try {
-      // 1. Choose the best connection available
-      let provider;
-      if (window.ethereum) {
-        provider = new ethers.BrowserProvider(window.ethereum); // Ultra-fast (for you)
-      } else {
-        provider = new ethers.JsonRpcProvider("https://eth-mainnet.g.alchemy.com/v2/5e9G4IlGFLQOkmf6oml5v"); // Fallback (for mobile phones)
-      }
+      // 1. FORCE the app to use Alchemy so mobile browsers (like Brave) don't interfere!
+      // MAKE SURE YOUR ALCHEMY HTTPS URL IS PASTED IN THE QUOTES BELOW:
+      const provider = new ethers.JsonRpcProvider("https://eth-sepolia.g.alchemy.com/v2/5e9G4IlGFLQOkmf6oml5v"); 
       
       const contract = new ethers.Contract(contractAddress, BatteryPassport.abi, provider);
       const statusMap = ["Manufactured", "Installed in EV", "End of Life", "Recycled"];
@@ -187,7 +181,6 @@ function App() {
       setVerifyData("NOT_FOUND");
     }
   }
-
   // === RENDER PUBLIC VERIFIER ===
   if (isVerifyMode) {
     return (
