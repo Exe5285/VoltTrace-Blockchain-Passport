@@ -156,7 +156,7 @@ function App() {
       if (window.ethereum) {
         provider = new ethers.BrowserProvider(window.ethereum); // Ultra-fast (for you)
       } else {
-        provider = new ethers.JsonRpcProvider("https://rpc.sepolia.org"); // Fallback (for mobile phones)
+        provider = new ethers.JsonRpcProvider("https://eth-mainnet.g.alchemy.com/v2/5e9G4IlGFLQOkmf6oml5v"); // Fallback (for mobile phones)
       }
       
       const contract = new ethers.Contract(contractAddress, BatteryPassport.abi, provider);
