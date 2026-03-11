@@ -1,83 +1,83 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.20;
 
-contract BatteryPassport {
-    // Multi-Admin Role-Based Security
-    mapping(address => bool) public admins;
+import "@openzeppelin/contracts/access/AccessControl.sol";
 
-    // Lifecycle Status Engine
-    enum LifecycleStatus { Manufactured, Installed, EndOfLife, Recycled }
+contract BatteryPassport is AccessControl {
+    // Define Roles
+    bytes32 public constant MANUFACTURER_ROLE = keccak256("MANUFACTURER_ROLE");
+    bytes32 public constant SERVICE_CENTER_ROLE = keccak256("SERVICE_CENTER_ROLE");
+    bytes32 public constant REGULATOR_ROLE = keccak256("REGULATOR_ROLE");
 
-    // Advanced Metrics with Owner Tracking
+    // Define Battery Statuses for the Revocation/Flagging System
+    enum BatteryStatus { Active, Recalled, Stolen, EndOfLife }
+
+    // Struct for Lifecycle Events (e.g., "Serviced", "Resold")
+    struct LifecycleEvent {
+        uint256 timestamp;
+        string description;
+        address recordedBy;
+    }
+
+    // Main Battery Struct
     struct Battery {
-        uint256 id;
-        string manufacturer;
-        string model;
-        string ownerName; // NEW: Track who owns the EV!
-        string manufactureDate;
-        uint256 capacityKWh;
-        uint256 chargeCycles;
-        uint256 healthPercentage;
-        LifecycleStatus status;
+        string batteryId;     // The ID linked to your Dynamic QR Code
+        address manufacturer; // Wallet address that minted it
+        string ipfsCid;       // Link to the heavy metadata (health reports, etc.)
+        BatteryStatus status; // Current status
+        uint256 eventCount;   // Tracker for the events array
+        uint8 healthPercentage; // <-- ADDED: State of Health (0-100%)
+        uint16 chargeCycles;    // <-- ADDED: Number of charge cycles
     }
 
-    mapping(uint256 => Battery) public batteries;
-    uint256 public nextBatteryId;
+    // Mappings
+    mapping(string => Battery) private batteries;
+    mapping(string => mapping(uint256 => LifecycleEvent)) private batteryEvents;
 
-    event PassportMinted(uint256 indexed id, string manufacturer, string model);
-    event AdminAdded(address indexed newAdmin);
-    event StatusUpdated(uint256 indexed id, LifecycleStatus newStatus);
-    event HealthUpdated(uint256 indexed id, uint256 health, uint256 cycles);
-    
-    // Security check: Is this wallet in the Admin list?
-    modifier onlyAdmin() {
-        require(admins[msg.sender] == true, "SECURITY ALERT: Unassigned wallet. Only authorized Admins can perform this action");
-        _;
-    }
+    // Events for the Frontend to listen to
+    event BatteryMinted(string batteryId, address indexed manufacturer, string ipfsCid);
+    event StatusUpdated(string indexed batteryId, BatteryStatus newStatus);
+    event EventLogged(string indexed batteryId, string description, address recordedBy);
 
     constructor() {
-        admins[msg.sender] = true; // The wallet that deploys this becomes the Master Admin
+        // Grant the contract deployer the default admin role: it will be able
+        // to grant and revoke any roles
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
-    // Feature: Master Admin can authorize showrooms to mint/update passports
-    function addShowroomAdmin(address _newAdmin) public onlyAdmin {
-        admins[_newAdmin] = true;
-        emit AdminAdded(_newAdmin);
-    }
+    // --- Core Functions ---
 
-    function createPassport(
-        string memory _manufacturer,
-        string memory _model,
-        string memory _ownerName,
-        string memory _date,
-        uint256 _capacityKWh
-    ) public onlyAdmin {
-        batteries[nextBatteryId] = Battery({
-            id: nextBatteryId,
-            manufacturer: _manufacturer,
-            model: _model,
-            ownerName: _ownerName,
-            manufactureDate: _date,
-            capacityKWh: _capacityKWh,
-            chargeCycles: 0,
-            healthPercentage: 100,
-            status: LifecycleStatus.Manufactured
+    // 1. Minting a new battery (Security unlocked for demo presentation)
+    function registerBattery(string memory _batteryId, string memory _ipfsCid) public {
+        require(bytes(batteries[_batteryId].batteryId).length == 0, "Battery already exists");
+        
+        batteries[_batteryId] = Battery({
+            batteryId: _batteryId,
+            manufacturer: msg.sender,
+            ipfsCid: _ipfsCid,
+            status: BatteryStatus.Active,
+            eventCount: 0,
+            healthPercentage: 100, // Default for new batteries
+            chargeCycles: 0        // Default for new batteries
         });
 
-        emit PassportMinted(nextBatteryId, _manufacturer, _model);
-        nextBatteryId++;
+        emit BatteryMinted(_batteryId, msg.sender, _ipfsCid);
     }
 
-    // Feature: Showrooms can update health, cycles, and status when serviced
-    function updateHealthAndStatus(uint256 _id, uint256 _health, uint256 _cycles, LifecycleStatus _status) public onlyAdmin {
-        require(_id < nextBatteryId, "Battery does not exist");
-        require(_health <= 100, "Health cannot mathematically exceed 100%");
-        
-        batteries[_id].healthPercentage = _health;
-        batteries[_id].chargeCycles = _cycles;
-        batteries[_id].status = _status;
+    // 2. Updating Health, Cycles, and Status (Security unlocked for demo presentation)
+    function updateHealthAndStatus(string memory _batteryId, uint8 _newHealth, uint16 _newCycles, BatteryStatus _newStatus) public {
+        require(bytes(batteries[_batteryId].batteryId).length != 0, "Battery does not exist");
 
-        emit HealthUpdated(_id, _health, _cycles);
-        emit StatusUpdated(_id, _status);
+        batteries[_batteryId].healthPercentage = _newHealth;
+        batteries[_batteryId].chargeCycles = _newCycles;
+        batteries[_batteryId].status = _newStatus;
+        
+        emit StatusUpdated(_batteryId, _newStatus);
+    }
+
+    // Add this so the website can read the data!
+    function getBattery(string memory _batteryId) public view returns (Battery memory) {
+        require(bytes(batteries[_batteryId].batteryId).length != 0, "Battery does not exist");
+        return batteries[_batteryId];
     }
 }
