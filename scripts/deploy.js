@@ -1,14 +1,24 @@
 const hre = require("hardhat");
 
 async function main() {
-  // 1. Tell Hardhat which contract we want
-  const contract = await hre.ethers.deployContract("BatteryPassport");
+  const [deployer] = await hre.ethers.getSigners();
+  console.log("Deploying contracts with the account:", deployer.address);
 
-  // 2. Wait for it to be built on the network
-  await contract.waitForDeployment();
+  const Passport = await hre.ethers.getContractFactory("BatteryPassport");
+  const passport = await Passport.deploy();
+  await passport.waitForDeployment();
 
-  // 3. Print the permanent address
-  console.log("🚀 Battery Passport deployed to:", contract.target);
+  const address = await passport.getAddress();
+  console.log("✅ Battery Passport deployed to:", address);
+
+  // Granting you ALL Roles so your demo doesn't fail!
+  const MANUF_ROLE = await passport.MANUFACTURER_ROLE();
+  const SERV_ROLE = await passport.SERVICE_CENTER_ROLE();
+  
+  await passport.grantRole(MANUF_ROLE, deployer.address);
+  await passport.grantRole(SERV_ROLE, deployer.address);
+  
+  console.log("🔐 RBAC Complete: You have been granted Manufacturer and Service Center roles.");
 }
 
 main().catch((error) => {

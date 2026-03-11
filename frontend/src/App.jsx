@@ -5,7 +5,7 @@ import { QRCodeCanvas } from 'qrcode.react';
 
 // Your Brand New V3 Contract
 const MANUFACTURER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("MANUFACTURER_ROLE"));
-const contractAddress = "0x06F6ed4b73C20bb2879793D13cf973E2BF52d525";
+const contractAddress = "0x408B8B59631c555568A977F847472dC0fC8Ac387"; // REMEMBER TO UPDATE THIS AFTER YOU DEPLOY!
 const websiteURL = "https://volt-trace-blockchain-passport-f2w4.vercel.app";
 
 function App() {
@@ -105,8 +105,9 @@ function App() {
 
       const batteryId = "BAT-" + Date.now(); 
 
-      // 3. Save the real IPFS link
-      const tx = await contract.registerBattery(batteryId, realIPFSCid);
+      // 3. FEATURE 5 FIX: Save the real IPFS link AND the Privacy Hash
+      const dummySecretHash = ethers.keccak256(ethers.toUtf8Bytes("CollegeProjectSecret2026"));
+      const tx = await contract.registerBattery(batteryId, realIPFSCid, dummySecretHash);
       await tx.wait();
       
       setStatusMsg(`✅ Success! Passport ID: ${batteryId}`); 
@@ -134,8 +135,7 @@ function App() {
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(contractAddress, BatteryPassport.abi, signer);
 
-      // WE FIXED THIS LINE: It now exactly matches your smart contract
-// Send all 4 pieces of data to the blockchain!
+      // Send all 4 pieces of data to the blockchain!
       const tx = await contract.updateHealthAndStatus(updateId, updateHealth, updateCycles, updateStatus);
       await tx.wait();
       
