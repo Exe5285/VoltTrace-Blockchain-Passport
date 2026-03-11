@@ -5,7 +5,7 @@ import { QRCodeCanvas } from 'qrcode.react';
 
 // Your Brand New V3 Contract
 const MANUFACTURER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("MANUFACTURER_ROLE"));
-const contractAddress = "0x408B8B59631c555568A977F847472dC0fC8Ac387"; // REMEMBER TO UPDATE THIS AFTER YOU DEPLOY!
+const contractAddress = "0xC05A2D38B7AF95744F8c95b2753ba24a446ff205"; // REMEMBER TO UPDATE THIS AFTER YOU DEPLOY!
 const websiteURL = "https://volt-trace-blockchain-passport-f2w4.vercel.app";
 
 function App() {
@@ -163,10 +163,9 @@ function App() {
         const rawId = event.args[0];
         const safeId = typeof rawId === 'object' && rawId.hash ? "HASH-" + rawId.hash.substring(2, 8) : String(rawId);
 
-        return {
+      return {
           id: safeId,         
-          manufacturer: String(event.args[1]), 
-          ipfs: String(event.args[2])        
+          manufacturer: String(event.args[1])
         };
       });
 
